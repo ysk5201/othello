@@ -31,6 +31,17 @@ cursor: pointer;
 user-select: none;
 -webkit-user-select: none;
 }
+#field td.last {
+background-color: #3a9a55;
+}
+#mode_area {
+margin-bottom: 12px;
+font-size: 16px;
+}
+#mode {
+font-size: 16px;
+padding: 4px;
+}
 #view_tarn {
 font-size: 18px;
 }
@@ -44,6 +55,16 @@ padding: 8px 16px;
 
 <body>
 
+<!-- 対戦モードの選択 -->
+<div id="mode_area">
+<label for="mode">対戦モード：</label>
+<select id="mode" onchange="ban_init()">
+<option value="0">2人で対戦</option>
+<option value="1">AIと対戦(弱い)</option>
+<option value="2">AIと対戦(普通)</option>
+<option value="3">AIと対戦(強い)</option>
+</select>
+</div>
 <!-- 盤面 -->
 <table id="field"></table>
 <!-- ターンの表示 -->
@@ -56,6 +77,10 @@ padding: 8px 16px;
 // 初期変数定義
 var turn = 0 // ターン 1:黒、-1:白
 var game_over = false // 終局したか
+var ai_level = 0 // AIの強さ 0:2人対戦、1:弱い、2:普通、3:強い
+var ai_color = -1 // AIの石の色(AIは白で後手)
+var ai_timer = null // AIが考えている間のタイマー
+var last_move = null // 最後に石を置いたセル[行,列]
 // 盤面の状況を二次元配列で定義
 var ban_ar = new Array(6)
 for (var x = 0; x < ban_ar.length; x++){
@@ -78,14 +103,15 @@ for (var x = 0; x < 6; x++) {
 for (var y = 0; y < 6; y++) {
 var select_cell = ban.rows[x].cells[y];
 select_cell.onclick = function() {
-// 終局後は操作を受け付けない
-if (game_over) {
+// 終局後とAIの番は操作を受け付けない
+if (game_over || is_ai_turn()) {
 return
 }
 // クリックされた場所に石がない場合は、その場所にターン側の石が置けるかチェックし
 // 置ける場合は、盤面を更新。相手のターンへ移る
 if (ban_ar[this.parentNode.rowIndex][this.cellIndex] == 0) {
 if (check_reverse(this.parentNode.rowIndex,this.cellIndex) > 0){
+last_move = [this.parentNode.rowIndex, this.cellIndex]
 ban_set()
 cheng_turn()
 }
@@ -119,11 +145,15 @@ ban_ar[2][2] = -1
 ban_ar[3][2] = 1
 ban_ar[2][3] = 1
 ban_ar[3][3] = -1
-ban_set()
 
 // ターンも初期化
 turn = 0
 game_over = false
+last_move = null
+// 考え中のAIを止め、選択された対戦モードを反映
+clearTimeout(ai_timer)
+ai_level = Number(document.getElementById('mode').value)
+ban_set()
 cheng_turn()
 };
 
@@ -144,6 +174,8 @@ stone = "●"
 break;
 }
 ban.rows[x].cells[y].innerText = stone;
+// 最後に置いた石のセルを目立たせる
+ban.rows[x].cells[y].className = (last_move && last_move[0] == x && last_move[1] == y) ? "last" : "";
 }
 }
 return true
@@ -155,7 +187,7 @@ var tarn_msg = document.getElementById('view_tarn')
 if(turn == 0){
 // 0は最初として、メッセージのみで処理終了
 turn = 1
-tarn_msg.textContent = "黒の番です。"
+tarn_msg.textContent = turn_text(turn)
 return
 }
 // ターンを変更
@@ -188,22 +220,42 @@ end_game(black_cnt, white_cnt)
 return
 }
 if (turn == -1) {
-alert("白の置ける場所がありません。続けて黒の番となります。")
+alert(player_name(-1) + "の置ける場所がありません。続けて" + player_name(1) + "の番となります。")
 } else {
-alert("黒の置ける場所がありません。続けて白の番となります。")
+alert(player_name(1) + "の置ける場所がありません。続けて" + player_name(-1) + "の番となります。")
 }
 turn = turn * -1
 }
 
 // ターンを表示する
-switch( turn ) {
-case -1:
-tarn_msg.textContent = "白の番です。";
-break;
-case 1:
-tarn_msg.textContent = "黒の番です。";
-break;
+tarn_msg.textContent = turn_text(turn)
+
+// AIの番であれば、少し間を置いてAIが石を置く
+if (is_ai_turn()) {
+ai_timer = setTimeout(ai_move, 500)
 }
+};
+
+// 手番の色の呼び名(AI対戦では「あなた」「AI」を付ける)
+function player_name (color) {
+var name = (color == 1) ? "黒" : "白"
+if (ai_level == 0) {
+return name
+}
+return (color == ai_color) ? "AI(" + name + ")" : "あなた(" + name + ")"
+};
+
+// 手番の表示メッセージ
+function turn_text (color) {
+if (ai_level > 0 && color == ai_color) {
+return player_name(color) + "が考えています…"
+}
+return player_name(color) + "の番です。"
+};
+
+// 今がAIの番か
+function is_ai_turn () {
+return ai_level > 0 && turn == ai_color && !game_over
 };
 
 // 終局処理(結果を表示し、以降の操作を止める)
@@ -212,9 +264,9 @@ var result = ""
 if( white_cnt == black_cnt) {
 result = "勝負は、黒：" + black_cnt + "対、白：" + white_cnt + "で、引分です。"
 } else if (white_cnt > black_cnt){
-result = "勝負は、黒：" + black_cnt + "対、白：" + white_cnt + "で、白の勝ちです。"
+result = "勝負は、黒：" + black_cnt + "対、白：" + white_cnt + "で、" + player_name(-1) + "の勝ちです。"
 } else {
-result = "勝負は、黒："+ black_cnt + "対、白："+ white_cnt + "で、黒の勝ちです。"
+result = "勝負は、黒："+ black_cnt + "対、白："+ white_cnt + "で、" + player_name(1) + "の勝ちです。"
 }
 game_over = true
 document.getElementById('view_tarn').textContent = result
@@ -254,14 +306,15 @@ return reverse_cnt
 }
 
 // 指定したセルから指定した方向へ、裏返せる石の数を数える(盤面は変更しない)
-function line_count (row_index,cell_indx,add_x,add_y,color) {
+function line_count (row_index,cell_indx,add_x,add_y,color,board) {
+var b = board || ban_ar // 盤面の指定がなければ現在の盤面で確認
 var cnt = 0 // 相手の石の数
 var xx = row_index + add_x // 指定したセルの隣(行)
 var yy = cell_indx + add_y // 指定したセルの隣(列)
 // 盤の端、または石がないセルに到達するまで移動する
-while (xx >= 0 && xx <= 5 && yy >= 0 && yy <= 5 && ban_ar[xx][yy] != 0) {
+while (xx >= 0 && xx <= 5 && yy >= 0 && yy <= 5 && b[xx][yy] != 0) {
 // 移動先のセルが自分自身であれば、それまでの相手の石を裏返せる
-if (ban_ar[xx][yy] == color) {
+if (b[xx][yy] == color) {
 return cnt
 }
 cnt++
@@ -283,6 +336,181 @@ ban_ar[row_index + add_x * i][cell_indx + add_y * i] = turn
 // 最後に裏返しを行った件数を戻す
 return line_reverse_cnt
 }
+
+// ===== AI =====
+
+// 盤面の位置ごとの評価値(角は高く、角の隣は低い)
+var ai_weight = [
+[100, -20, 10, 10, -20, 100],
+[-20, -40, -1, -1, -40, -20],
+[ 10,  -1,  1,  1,  -1,  10],
+[ 10,  -1,  1,  1,  -1,  10],
+[-20, -40, -1, -1, -40, -20],
+[100, -20, 10, 10, -20, 100]
+]
+
+// AIが石を置く
+function ai_move () {
+if (!is_ai_turn()) {
+return
+}
+var move
+switch (ai_level) {
+case 1:
+move = ai_random()
+break;
+case 2:
+move = ai_greedy()
+break;
+default:
+move = ai_search()
+break;
+}
+check_reverse(move[0], move[1])
+last_move = move
+ban_set()
+cheng_turn()
+};
+
+// 指定した盤面で、指定した色が置ける場所の一覧
+function ai_moves (board, color) {
+var moves = []
+for (var x = 0; x < 6; x++) {
+for (var y = 0; y < 6; y++) {
+if (board[x][y] != 0) {
+continue
+}
+for (var d = 0; d < directions.length; d++) {
+if (line_count(x, y, directions[d][0], directions[d][1], color, board) > 0) {
+moves.push([x, y])
+break
+}
+}
+}
+}
+return moves
+};
+
+// 指定した盤面に石を置いた後の盤面を作る(元の盤面は変更しない)
+function ai_play (board, move, color) {
+var next = board.map(function (row) { return row.slice() })
+for (var d = 0; d < directions.length; d++) {
+var cnt = line_count(move[0], move[1], directions[d][0], directions[d][1], color, board)
+for (var i = 1; i <= cnt; i++) {
+next[move[0] + directions[d][0] * i][move[1] + directions[d][1] * i] = color
+}
+}
+next[move[0]][move[1]] = color
+return next
+};
+
+// 弱い：置ける場所からランダムに選ぶ
+function ai_random () {
+var moves = ai_moves(ban_ar, ai_color)
+return moves[Math.floor(Math.random() * moves.length)]
+};
+
+// 普通：置いた後の盤面の位置評価が一番高い場所を選ぶ(同点はランダム)
+function ai_greedy () {
+var moves = ai_moves(ban_ar, ai_color)
+var best = []
+var best_score = -Infinity
+for (var i = 0; i < moves.length; i++) {
+var score = ai_position(ai_play(ban_ar, moves[i], ai_color), ai_color)
+if (score > best_score) {
+best_score = score
+best = [moves[i]]
+} else if (score == best_score) {
+best.push(moves[i])
+}
+}
+return best[Math.floor(Math.random() * best.length)]
+};
+
+// 強い：数手先まで読んで選ぶ(終盤は最後まで読み切る)
+function ai_search () {
+var empty = 0
+for (var x = 0; x < 6; x++) {
+for (var y = 0; y < 6; y++) {
+if (ban_ar[x][y] == 0) {
+empty++
+}
+}
+}
+var depth = (empty <= 10) ? empty : 6
+var moves = ai_order(ban_ar, ai_moves(ban_ar, ai_color))
+var best = moves[0]
+var alpha = -Infinity
+for (var i = 0; i < moves.length; i++) {
+var score = -ai_negamax(ai_play(ban_ar, moves[i], ai_color), -ai_color, depth - 1, -Infinity, -alpha, false)
+if (score > alpha) {
+alpha = score
+best = moves[i]
+}
+}
+return best
+};
+
+// アルファベータ法で、colorから見た盤面の評価値を求める
+function ai_negamax (board, color, depth, alpha, beta, passed) {
+var moves = ai_moves(board, color)
+if (moves.length == 0) {
+// 両者とも置けなければ終局。石の数の差で評価する
+if (passed) {
+return ai_disc_diff(board, color) * 1000
+}
+return -ai_negamax(board, -color, depth, -beta, -alpha, true)
+}
+if (depth <= 0) {
+return ai_evaluate(board, color, moves.length)
+}
+moves = ai_order(board, moves)
+for (var i = 0; i < moves.length; i++) {
+var score = -ai_negamax(ai_play(board, moves[i], color), -color, depth - 1, -beta, -alpha, false)
+if (score > alpha) {
+alpha = score
+}
+if (alpha >= beta) {
+break
+}
+}
+return alpha
+};
+
+// 位置評価が高い順に並べる(枝刈りが効きやすくなる)
+function ai_order (board, moves) {
+return moves.slice().sort(function (a, b) {
+return ai_weight[b[0]][b[1]] - ai_weight[a[0]][a[1]]
+})
+};
+
+// 盤面の評価値(位置の評価 + 置ける場所の多さ)
+function ai_evaluate (board, color, my_moves) {
+var opp_moves = ai_moves(board, -color).length
+return ai_position(board, color) + (my_moves - opp_moves) * 5
+};
+
+// 位置の評価値の合計(自分の石はプラス、相手の石はマイナス)
+function ai_position (board, color) {
+var score = 0
+for (var x = 0; x < 6; x++) {
+for (var y = 0; y < 6; y++) {
+score += ai_weight[x][y] * board[x][y] * color
+}
+}
+return score
+};
+
+// 石の数の差(colorから見て)
+function ai_disc_diff (board, color) {
+var diff = 0
+for (var x = 0; x < 6; x++) {
+for (var y = 0; y < 6; y++) {
+diff += board[x][y] * color
+}
+}
+return diff
+};
 
 </script>
 </body>
