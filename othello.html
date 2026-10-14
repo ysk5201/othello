@@ -35,10 +35,13 @@ user-select: none;
 background-color: #3a9a55;
 }
 #mode_area {
+display: flex;
+flex-wrap: wrap;
+gap: 8px 16px;
 margin-bottom: 12px;
 font-size: 16px;
 }
-#mode {
+#mode, #order {
 font-size: 16px;
 padding: 4px;
 }
@@ -57,6 +60,7 @@ padding: 8px 16px;
 
 <!-- 対戦モードの選択 -->
 <div id="mode_area">
+<span>
 <label for="mode">対戦モード：</label>
 <select id="mode" onchange="ban_init()">
 <option value="0">2人で対戦</option>
@@ -64,6 +68,15 @@ padding: 8px 16px;
 <option value="2">AIと対戦(普通)</option>
 <option value="3">AIと対戦(強い)</option>
 </select>
+</span>
+<!-- AI対戦の時だけ、先手・後手を選べる -->
+<span id="order_area" hidden>
+<label for="order">あなたの手番：</label>
+<select id="order" onchange="ban_init()">
+<option value="1">先手(黒)</option>
+<option value="-1">後手(白)</option>
+</select>
+</span>
 </div>
 <!-- 盤面 -->
 <table id="field"></table>
@@ -78,7 +91,7 @@ padding: 8px 16px;
 var turn = 0 // ターン 1:黒、-1:白
 var game_over = false // 終局したか
 var ai_level = 0 // AIの強さ 0:2人対戦、1:弱い、2:普通、3:強い
-var ai_color = -1 // AIの石の色(AIは白で後手)
+var ai_color = -1 // AIの石の色 1:黒(先手)、-1:白(後手)
 var ai_timer = null // AIが考えている間のタイマー
 var last_move = null // 最後に石を置いたセル[行,列]
 // 盤面の状況を二次元配列で定義
@@ -153,6 +166,9 @@ last_move = null
 // 考え中のAIを止め、選択された対戦モードを反映
 clearTimeout(ai_timer)
 ai_level = Number(document.getElementById('mode').value)
+// AIの石は、あなたが選んだ手番の反対の色
+ai_color = -Number(document.getElementById('order').value)
+document.getElementById('order_area').hidden = (ai_level == 0)
 ban_set()
 cheng_turn()
 };
@@ -185,9 +201,12 @@ return true
 function cheng_turn () {
 var tarn_msg = document.getElementById('view_tarn')
 if(turn == 0){
-// 0は最初として、メッセージのみで処理終了
+// 0は最初として、黒の番にして処理終了(AIが先手なら石を置かせる)
 turn = 1
 tarn_msg.textContent = turn_text(turn)
+if (is_ai_turn()) {
+ai_timer = setTimeout(ai_move, 500)
+}
 return
 }
 // ターンを変更
